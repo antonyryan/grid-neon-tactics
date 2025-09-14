@@ -249,3 +249,53 @@ export const seedCharacters = mutation({
     return { message: "Characters seeded successfully" };
   },
 });
+
+export const updateCharacter = mutation({
+  args: {
+    characterId: v.string(),
+    name: v.optional(v.string()),
+    maxHP: v.optional(v.number()),
+    maxSP: v.optional(v.number()),
+    movement: v.optional(v.number()),
+    attack: v.optional(v.number()),
+    esquiva: v.optional(v.number()),
+    alcance: v.optional(v.number()),
+    placeholderImageURL: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const character = await ctx.db
+      .query("characters")
+      .withIndex("by_character_id", (q) => q.eq("characterId", args.characterId))
+      .first();
+
+    if (!character) {
+      throw new Error("Character not found");
+    }
+
+    // Basic validation for non-negative numbers where applicable
+    const toPatch: Record<string, unknown> = {};
+    if (args.name !== undefined) toPatch.name = args.name;
+    if (args.placeholderImageURL !== undefined) toPatch.placeholderImageURL = args.placeholderImageURL;
+
+    const numericFields = [
+      ["maxHP", args.maxHP],
+      ["maxSP", args.maxSP],
+      ["movement", args.movement],
+      ["attack", args.attack],
+      ["esquiva", args.esquiva],
+      ["alcance", args.alcance],
+    ] as const;
+
+    for (const [key, value] of numericFields) {
+      if (value !== undefined) {
+        if (value < 0) {
+          throw new Error(`${key} must be >= 0`);
+        }
+        toPatch[key] = value;
+      }
+    }
+
+    await ctx.db.patch(character._id, toPatch);
+    return { success: true };
+  },
+});

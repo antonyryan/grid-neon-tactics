@@ -9,7 +9,10 @@ import { Copy, Gamepad2, Plus, Users } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export default function Lobby() {
   const navigate = useNavigate();
@@ -20,6 +23,48 @@ export default function Lobby() {
 
   const createRoom = useMutation(api.rooms.createRoom);
   const seedCharacters = useMutation(api.characters.seedCharacters);
+  const characters = useQuery(api.characters.getAllCharacters);
+  const updateCharacter = useMutation(api.characters.updateCharacter);
+
+  const [manageOpen, setManageOpen] = useState(false);
+  const [edits, setEdits] = useState<Record<string, {
+    name?: string;
+    maxHP?: string;
+    maxSP?: string;
+    movement?: string;
+    attack?: string;
+    esquiva?: string;
+    alcance?: string;
+    placeholderImageURL?: string;
+  }>>({});
+
+  const setField = (id: string, field: string, value: string) => {
+    setEdits(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [field]: value } }));
+  };
+
+  const saveCharacter = async (id: string) => {
+    try {
+      const e = edits[id] || {};
+      const payload: any = { characterId: id };
+      if (e.name !== undefined) payload.name = e.name;
+      if (e.placeholderImageURL !== undefined) payload.placeholderImageURL = e.placeholderImageURL;
+      if (e.maxHP !== undefined && e.maxHP !== "") payload.maxHP = parseInt(e.maxHP);
+      if (e.maxSP !== undefined && e.maxSP !== "") payload.maxSP = parseInt(e.maxSP);
+      if (e.movement !== undefined && e.movement !== "") payload.movement = parseInt(e.movement);
+      if (e.attack !== undefined && e.attack !== "") payload.attack = parseInt(e.attack);
+      if (e.esquiva !== undefined && e.esquiva !== "") payload.esquiva = parseInt(e.esquiva);
+      if (e.alcance !== undefined && e.alcance !== "") payload.alcance = parseInt(e.alcance);
+
+      await updateCharacter(payload);
+      toast.success("Character updated");
+      setEdits(prev => {
+        const { [id]: _, ...rest } = prev;
+        return rest;
+      });
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update character");
+    }
+  };
 
   const handleCreateRoom = async () => {
     setIsCreating(true);
@@ -217,6 +262,131 @@ export default function Lobby() {
               </CardContent>
             </Card>
           </motion.div>
+        </div>
+
+        {/* Add Manage Characters trigger near the features or header */}
+        <div className="max-w-4xl mx-auto mt-6 flex justify-center">
+          <Dialog open={manageOpen} onOpenChange={setManageOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="border-cyan-400/40 text-cyan-300 hover:border-cyan-400">
+                Editar Personagens
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl bg-black/80 border-cyan-400/30 text-cyan-300">
+              <DialogHeader>
+                <DialogTitle className="text-cyan-400">Gerenciar Personagens</DialogTitle>
+              </DialogHeader>
+              <ScrollArea className="h-[60vh] pr-2">
+                <div className="space-y-4">
+                  {characters?.map((c) => {
+                    const e = edits[c.characterId] || {};
+                    return (
+                      <Card key={c.characterId} className="bg-black/40 border-cyan-400/20">
+                        <CardHeader>
+                          <CardTitle className="text-cyan-300 text-base">
+                            {c.name} <span className="text-xs text-cyan-400/60">({c.characterId})</span>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs text-cyan-400/70">Nome</Label>
+                            <Input
+                              className="bg-black/30 border-cyan-400/30"
+                              defaultValue={c.name}
+                              onChange={(ev) => setField(c.characterId, "name", ev.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-cyan-400/70">Imagem (URL)</Label>
+                            <Input
+                              className="bg-black/30 border-cyan-400/30"
+                              defaultValue={c.placeholderImageURL}
+                              onChange={(ev) => setField(c.characterId, "placeholderImageURL", ev.target.value)}
+                            />
+                          </div>
+
+                          <div>
+                            <Label className="text-xs text-cyan-400/70">Max HP</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              className="bg-black/30 border-cyan-400/30"
+                              defaultValue={c.maxHP}
+                              onChange={(ev) => setField(c.characterId, "maxHP", ev.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-cyan-400/70">Max SP</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              className="bg-black/30 border-cyan-400/30"
+                              defaultValue={c.maxSP}
+                              onChange={(ev) => setField(c.characterId, "maxSP", ev.target.value)}
+                            />
+                          </div>
+
+                          <div>
+                            <Label className="text-xs text-cyan-400/70">Movimento</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              className="bg-black/30 border-cyan-400/30"
+                              defaultValue={c.movement}
+                              onChange={(ev) => setField(c.characterId, "movement", ev.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-cyan-400/70">Ataque</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              className="bg-black/30 border-cyan-400/30"
+                              defaultValue={c.attack}
+                              onChange={(ev) => setField(c.characterId, "attack", ev.target.value)}
+                            />
+                          </div>
+
+                          <div>
+                            <Label className="text-xs text-cyan-400/70">Esquiva</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              className="bg-black/30 border-cyan-400/30"
+                              defaultValue={c.esquiva}
+                              onChange={(ev) => setField(c.characterId, "esquiva", ev.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-cyan-400/70">Alcance</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              className="bg-black/30 border-cyan-400/30"
+                              defaultValue={c.alcance}
+                              onChange={(ev) => setField(c.characterId, "alcance", ev.target.value)}
+                            />
+                          </div>
+
+                          <div className="md:col-span-2">
+                            <Button
+                              onClick={() => saveCharacter(c.characterId)}
+                              className="w-full bg-gradient-to-r from-cyan-600 to-pink-600 hover:from-cyan-700 hover:to-pink-700 text-black font-bold"
+                            >
+                              Salvar
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                  {!characters && (
+                    <div className="text-sm text-cyan-400/70">Carregando personagens...</div>
+                  )}
+                </div>
+              </ScrollArea>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Features Section */}
