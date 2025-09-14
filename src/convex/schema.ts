@@ -32,12 +32,53 @@ const schema = defineSchema(
       role: v.optional(roleValidator), // role of the user. do not remove
     }).index("email", ["email"]), // index for the email. do not remove or modify
 
-    // add other tables here
+    // Game rooms
+    rooms: defineTable({
+      roomId: v.string(),
+      creatorId: v.string(),
+      gridSize: v.number(),
+      status: v.union(v.literal("waiting"), v.literal("playing"), v.literal("finished")),
+      players: v.array(v.object({
+        playerId: v.string(),
+        name: v.string(),
+        characterId: v.optional(v.string()),
+        position: v.optional(v.object({ x: v.number(), y: v.number() })),
+        isAlive: v.boolean(),
+        isCreator: v.boolean(),
+        socketConnected: v.boolean(),
+        currentHP: v.optional(v.number()),
+        currentSP: v.optional(v.number()),
+      })),
+      turnOrder: v.array(v.string()),
+      currentTurnIndex: v.number(),
+      roundNumber: v.number(),
+      globalTurnCounter: v.number(),
+      gameLog: v.array(v.object({
+        timestamp: v.string(),
+        text: v.string(),
+      })),
+    }).index("by_room_id", ["roomId"]),
 
-    // tableName: defineTable({
-    //   ...
-    //   // table fields
-    // }).index("by_field", ["field"])
+    // Game characters (static data)
+    characters: defineTable({
+      characterId: v.string(),
+      name: v.string(),
+      maxHP: v.number(),
+      maxSP: v.number(),
+      movement: v.number(),
+      attack: v.number(),
+      esquiva: v.number(),
+      alcance: v.number(),
+      placeholderImageURL: v.string(),
+      skills: v.array(v.object({
+        name: v.string(),
+        cost: v.string(), // "X HP" or "X SP"
+        cooldown: v.number(),
+        range: v.number(),
+        damage: v.string(),
+        description: v.string(),
+      })),
+    }).index("by_character_id", ["characterId"]),
   },
   {
     schemaValidation: false,
