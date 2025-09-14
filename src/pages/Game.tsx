@@ -274,15 +274,51 @@ export default function Game() {
 
             {/* Player indicator */}
             {player && (
-              <div className="absolute inset-2 flex items-center justify-center">
-                <div className={`
-                  w-8 h-8 rounded-full border-2 flex items-center justify-center
-                  ${isCurrentPlayer ? "border-cyan-400 bg-cyan-400/20" : "border-pink-400 bg-pink-400/20"}
-                  font-mono text-xs font-bold
-                `}>
-                  {player.name.substring(0, 2).toUpperCase()}
-                </div>
-              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="absolute inset-2 flex items-center justify-center">
+                    <div className={`
+                      w-8 h-8 rounded-full border-2 flex items-center justify-center
+                      ${isCurrentPlayer ? "border-cyan-400 bg-cyan-400/20" : "border-pink-400 bg-pink-400/20"}
+                      font-mono text-xs font-bold
+                    `}>
+                      {player.name.substring(0, 2).toUpperCase()}
+                    </div>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="bg-black border-cyan-400/30 text-cyan-400 max-w-xs">
+                  {(() => {
+                    const character = characters?.find(c => c.characterId === player.characterId);
+                    const cds = (player as any)?.skillCooldowns as Record<string, number> | undefined;
+                    return (
+                      <div className="space-y-2">
+                        <div className="font-bold text-cyan-300">
+                          {player.name}{character ? ` — ${character.name}` : ""}
+                        </div>
+                        <div className="text-xs text-cyan-400/70">
+                          HP: {player.currentHP ?? "-"}{character ? `/${character.maxHP}` : ""} • SP: {player.currentSP ?? "-"}{character ? `/${character.maxSP}` : ""}
+                        </div>
+                        {character && (
+                          <div className="space-y-1">
+                            <div className="text-xs text-cyan-400/70">Skills & Cooldowns</div>
+                            {character.skills.map(skill => {
+                              const cd = cds?.[skill.name] ?? 0;
+                              return (
+                                <div key={skill.name} className="flex items-center justify-between text-xs">
+                                  <span>{skill.name}</span>
+                                  <span className={`${cd > 0 ? "text-yellow-400" : "text-green-400"}`}>
+                                    {cd > 0 ? `CD: ${cd}` : "Ready"}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </TooltipContent>
+              </Tooltip>
             )}
 
             {/* Scan lines effect */}
@@ -341,12 +377,14 @@ export default function Game() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div 
-                  className="grid gap-1 p-4 bg-black/30 rounded border border-cyan-400/20"
-                  style={{ gridTemplateColumns: `repeat(${room.gridSize}, 1fr)` }}
-                >
-                  {renderGrid()}
-                </div>
+                <TooltipProvider>
+                  <div 
+                    className="grid gap-1 p-4 bg-black/30 rounded border border-cyan-400/20"
+                    style={{ gridTemplateColumns: `repeat(${room.gridSize}, 1fr)` }}
+                  >
+                    {renderGrid()}
+                  </div>
+                </TooltipProvider>
               </CardContent>
             </Card>
           </div>
