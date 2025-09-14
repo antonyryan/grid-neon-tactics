@@ -57,6 +57,8 @@ export default function Game() {
   const updateStats = useMutation(api.gameActions.updatePlayerStats);
   const endTurn = useMutation(api.gameActions.endTurn);
   const useSkill = useMutation(api.gameActions.useSkill);
+  const undoMove = useMutation(api.gameActions.undoMove);
+  const undoSkillUse = useMutation(api.gameActions.undoSkillUse);
 
   // Initialize player ID
   useEffect(() => {
@@ -212,6 +214,26 @@ export default function Game() {
     }
   };
 
+  const handleUndoMove = async () => {
+    if (!roomId || !playerId) return;
+    try {
+      await undoMove({ roomId, playerId });
+      toast.success("Movement undone");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to undo move");
+    }
+  };
+
+  const handleUndoSkill = async () => {
+    if (!roomId || !playerId) return;
+    try {
+      await undoSkillUse({ roomId, playerId });
+      toast.success("Skill undone");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to undo skill");
+    }
+  };
+
   const addDiceRoll = (faces: number) => {
     setDiceRolls(prev => {
       const existing = prev.find(r => r.faces === faces);
@@ -244,7 +266,8 @@ export default function Game() {
         const distFromMe = isPlayingMyTurn
           ? Math.abs(x - (currentPlayer!.position!.x)) + Math.abs(y - (currentPlayer!.position!.y))
           : Infinity;
-        const inMoveRange = isPlayingMyTurn && isEmpty && distFromMe > 0 && distFromMe <= myMovement;
+        const canMoveThisTurn = isPlayingMyTurn && !currentPlayer?.hasMovedThisTurn;
+        const inMoveRange = canMoveThisTurn && isEmpty && distFromMe > 0 && distFromMe <= myMovement;
 
         const canSelectPosition = room.status === "waiting" && currentPlayer && !player;
 
@@ -512,13 +535,40 @@ export default function Game() {
                       >
                         End Turn
                       </Button>
-                      
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          variant="outline"
+                          className="w-full border-cyan-400/30 hover:border-cyan-400"
+                          onClick={handleUndoMove}
+                          disabled={
+                            !isMyTurn ||
+                            !currentPlayer?.previousPositionThisTurn ||
+                            currentPlayer?.hasUndoneMoveThisTurn
+                          }
+                        >
+                          Undo Move
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="w-full border-cyan-400/30 hover:border-cyan-400"
+                          onClick={handleUndoSkill}
+                          disabled={
+                            !isMyTurn ||
+                            !currentPlayer?.hasUsedSkillThisTurn ||
+                            currentPlayer?.hasUndoneSkillThisTurn
+                          }
+                        >
+                          Undo Skill
+                        </Button>
+                      </div>
+
                       {currentPlayer && characters && (
                         <TooltipProvider>
                           {characters.find(c => c.characterId === currentPlayer.characterId)?.skills.map((skill, index) => {
                             const cd = getSkillCooldown(skill.name);
                             const enoughResource = canUseSkill(skill.cost);
-                            const disabled = !isMyTurn || cd > 0 || !enoughResource;
+                            const disabled = !isMyTurn || cd > 0 || !enoughResource || (currentPlayer?.hasUsedSkillThisTurn ?? false);
                             return (
                               <Tooltip key={index}>
                                 <TooltipTrigger asChild>

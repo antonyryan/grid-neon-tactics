@@ -56,6 +56,11 @@ export const movePlayer = mutation({
       throw new Error("Character data not found");
     }
 
+    // Check per-turn move limits
+    if (player.hasMovedThisTurn) {
+      throw new Error("You have already moved this turn");
+    }
+
     // Validate movement
     const distance = Math.abs(args.toX - args.fromX) + Math.abs(args.toY - args.fromY);
     if (distance > character.movement) {
@@ -80,16 +85,71 @@ export const movePlayer = mutation({
       throw new Error("Destination occupied");
     }
 
-    // Update player position
+    // Update player position + per-turn flags/snapshot
     const updatedPlayers = room.players.map(p => 
       p.playerId === args.playerId 
-        ? { ...p, position: { x: args.toX, y: args.toY } }
+        ? { 
+            ...p, 
+            position: { x: args.toX, y: args.toY },
+            previousPositionThisTurn: p.position ? { x: p.position.x, y: p.position.y } : undefined,
+            hasMovedThisTurn: true,
+          }
         : p
     );
 
     const updatedLog = [...room.gameLog, {
       timestamp: new Date().toISOString(),
       text: `Turno ${room.globalTurnCounter}, ${player.name}: Moveu de (${args.fromX},${args.fromY}) para (${args.toX},${args.toY})`,
+    }];
+
+    await ctx.db.patch(room._id, {
+      players: updatedPlayers,
+      gameLog: updatedLog,
+    });
+
+    return { success: true };
+  },
+});
+
+export const undoMove = mutation({
+  args: {
+    roomId: v.string(),
+    playerId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const room = await ctx.db
+      .query("rooms")
+      .withIndex("by_room_id", (q) => q.eq("roomId", args.roomId))
+      .first();
+
+    if (!room) throw new Error("Room not found");
+    if (room.status !== "playing") throw new Error("Game not in progress");
+
+    const currentPlayerId = room.turnOrder[room.currentTurnIndex];
+    if (currentPlayerId !== args.playerId) throw new Error("Not your turn");
+
+    const player = room.players.find(p => p.playerId === args.playerId);
+    if (!player) throw new Error("Player not found");
+    if (!player.previousPositionThisTurn) throw new Error("No move to undo");
+    if (player.hasUndoneMoveThisTurn) throw new Error("You already undid a move this turn");
+
+    // Revert to previous position, allow a new move
+    const prev = player.previousPositionThisTurn;
+    const updatedPlayers = room.players.map(p =>
+      p.playerId === args.playerId
+        ? {
+            ...p,
+            position: { x: prev.x, y: prev.y },
+            previousPositionThisTurn: undefined,
+            hasMovedThisTurn: false,
+            hasUndoneMoveThisTurn: true,
+          }
+        : p
+    );
+
+    const updatedLog = [...room.gameLog, {
+      timestamp: new Date().toISOString(),
+      text: `Turno ${room.globalTurnCounter}, ${player.name}: Desfez movimento para (${prev.x},${prev.y})`,
     }];
 
     await ctx.db.patch(room._id, {
@@ -307,6 +367,9 @@ export const useSkill = mutation({
     if (!player || !player.characterId) throw new Error("Player or character not found");
     if (!player.isAlive) throw new Error("Player is dead");
 
+    // Enforce one skill per turn
+    if (player.hasUsedSkillThisTurn) throw new Error("You have already used a skill this turn");
+
     const character = await ctx.db
       .query("characters")
       .withIndex("by_character_id", (q) => q.eq("characterId", player.characterId!))
@@ -332,25 +395,17 @@ export const useSkill = mutation({
       updatedHP = (player.currentHP ?? 0) - amount;
     }
 
+    const prevTurnOrder = room.turnOrder.slice();
+    const prevCurrentTurnIndex = room.currentTurnIndex;
+
     // Apply cooldown
+    const prevCooldownRemaining = cooldowns[skill.name] ?? 0;
     if (skill.cooldown > 0) {
       cooldowns[skill.name] = skill.cooldown;
     }
 
     // Handle death and turn order if HP <= 0
     let playerDied = false;
-    let updatedPlayers = room.players.map((p) =>
-      p.playerId === args.playerId
-        ? {
-            ...p,
-            currentHP: updatedHP,
-            currentSP: updatedSP,
-            isAlive: updatedHP > 0,
-            skillCooldowns: cooldowns,
-          }
-        : p
-    );
-
     let updatedTurnOrder = room.turnOrder.slice();
     let updatedCurrentTurnIndex = room.currentTurnIndex;
 
@@ -366,6 +421,31 @@ export const useSkill = mutation({
       }
     }
 
+    const updatedPlayers = room.players.map((p) =>
+      p.playerId === args.playerId
+        ? {
+            ...p,
+            currentHP: updatedHP,
+            currentSP: updatedSP,
+            isAlive: updatedHP > 0,
+            skillCooldowns: cooldowns,
+            hasUsedSkillThisTurn: true,
+            lastSkillUsedThisTurn: {
+              name: skill.name,
+              costType: type,
+              costAmount: amount,
+              prevCooldownRemaining,
+              snapshot: {
+                turnOrder: prevTurnOrder,
+                currentTurnIndex: prevCurrentTurnIndex,
+                playerHP: player.currentHP ?? 0,
+                playerSP: player.currentSP ?? 0,
+              },
+            },
+          }
+        : p
+    );
+
     const updatedLog = [...room.gameLog, {
       timestamp: new Date().toISOString(),
       text: `Turno ${room.globalTurnCounter}, ${player.name}: Usou ${skill.name} (Custo: ${skill.cost}${playerDied ? " — morreu" : ""})`,
@@ -379,6 +459,67 @@ export const useSkill = mutation({
     });
 
     return { success: true, playerDied };
+  },
+});
+
+export const undoSkillUse = mutation({
+  args: {
+    roomId: v.string(),
+    playerId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const room = await ctx.db
+      .query("rooms")
+      .withIndex("by_room_id", (q) => q.eq("roomId", args.roomId))
+      .first();
+
+    if (!room) throw new Error("Room not found");
+    if (room.status !== "playing") throw new Error("Game not in progress");
+
+    const currentPlayerId = room.turnOrder[room.currentTurnIndex];
+    if (currentPlayerId !== args.playerId) throw new Error("Not your turn");
+
+    const player = room.players.find((p) => p.playerId === args.playerId);
+    if (!player) throw new Error("Player not found");
+    if (!player.hasUsedSkillThisTurn) throw new Error("No skill used to undo");
+    if (player.hasUndoneSkillThisTurn) throw new Error("You already undid a skill this turn");
+    if (!player.lastSkillUsedThisTurn) throw new Error("No skill snapshot to undo");
+
+    const last = player.lastSkillUsedThisTurn;
+
+    // Restore cooldown to previous value and refund resources
+    const cooldowns = { ...(player.skillCooldowns ?? {}) };
+    cooldowns[last.name] = last.prevCooldownRemaining;
+
+    // Restore previous HP/SP and turn state from snapshot
+    const updatedPlayers = room.players.map((p) =>
+      p.playerId === args.playerId
+        ? {
+            ...p,
+            currentHP: last.snapshot.playerHP,
+            currentSP: last.snapshot.playerSP,
+            isAlive: last.snapshot.playerHP > 0,
+            skillCooldowns: cooldowns,
+            hasUsedSkillThisTurn: false,
+            hasUndoneSkillThisTurn: true,
+            lastSkillUsedThisTurn: undefined,
+          }
+        : p
+    );
+
+    const updatedLog = [...room.gameLog, {
+      timestamp: new Date().toISOString(),
+      text: `Turno ${room.globalTurnCounter}, ${player.name}: Desfez uso de ${last.name}`,
+    }];
+
+    await ctx.db.patch(room._id, {
+      players: updatedPlayers,
+      turnOrder: last.snapshot.turnOrder,
+      currentTurnIndex: last.snapshot.currentTurnIndex,
+      gameLog: updatedLog,
+    });
+
+    return { success: true };
   },
 });
 
@@ -420,18 +561,26 @@ export const endTurn = mutation({
 
       if (character) {
         updatedPlayers = room.players.map(p => {
-          if (p.playerId !== nextPlayerId) return p;
-          // Regenerate 1 SP (already present) and decrement cooldowns for the player starting their turn
-          const nextCooldowns = { ...(p.skillCooldowns ?? {}) };
-          for (const key of Object.keys(nextCooldowns)) {
-            const v = nextCooldowns[key] ?? 0;
-            nextCooldowns[key] = Math.max(0, v - 1);
+          if (p.playerId === nextPlayerId) {
+            // Start of turn: regen SP, decrement cooldowns, reset per-turn flags
+            const nextCooldowns = { ...(p.skillCooldowns ?? {}) };
+            for (const key of Object.keys(nextCooldowns)) {
+              const v = nextCooldowns[key] ?? 0;
+              nextCooldowns[key] = Math.max(0, v - 1);
+            }
+            return {
+              ...p,
+              currentSP: Math.min((p.currentSP ?? 0) + 1, character.maxSP),
+              skillCooldowns: nextCooldowns,
+              hasMovedThisTurn: false,
+              hasUndoneMoveThisTurn: false,
+              hasUsedSkillThisTurn: false,
+              hasUndoneSkillThisTurn: false,
+              previousPositionThisTurn: undefined,
+              lastSkillUsedThisTurn: undefined,
+            };
           }
-          return {
-            ...p,
-            currentSP: Math.min((p.currentSP ?? 0) + 1, character.maxSP),
-            skillCooldowns: nextCooldowns,
-          };
+          return p;
         });
       }
     }

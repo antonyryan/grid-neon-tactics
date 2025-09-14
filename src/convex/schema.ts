@@ -50,6 +50,25 @@ const schema = defineSchema(
         currentSP: v.optional(v.number()),
         // Add per-skill cooldown map: { [skillName]: remainingTurns }
         skillCooldowns: v.optional(v.record(v.string(), v.number())),
+
+        // NEW: per-turn control flags and snapshots
+        hasMovedThisTurn: v.optional(v.boolean()),
+        hasUndoneMoveThisTurn: v.optional(v.boolean()),
+        hasUsedSkillThisTurn: v.optional(v.boolean()),
+        hasUndoneSkillThisTurn: v.optional(v.boolean()),
+        previousPositionThisTurn: v.optional(v.object({ x: v.number(), y: v.number() })),
+        lastSkillUsedThisTurn: v.optional(v.object({
+          name: v.string(),
+          costType: v.union(v.literal("HP"), v.literal("SP")),
+          costAmount: v.number(),
+          prevCooldownRemaining: v.number(),
+          snapshot: v.object({
+            turnOrder: v.array(v.string()),
+            currentTurnIndex: v.number(),
+            playerHP: v.number(),
+            playerSP: v.number(),
+          }),
+        })),
       })),
       turnOrder: v.array(v.string()),
       currentTurnIndex: v.number(),
