@@ -48,6 +48,8 @@ const schema = defineSchema(
         socketConnected: v.boolean(),
         currentHP: v.optional(v.number()),
         currentSP: v.optional(v.number()),
+        // Add per-skill cooldown map: { [skillName]: remainingTurns }
+        skillCooldowns: v.optional(v.record(v.string(), v.number())),
       })),
       turnOrder: v.array(v.string()),
       currentTurnIndex: v.number(),

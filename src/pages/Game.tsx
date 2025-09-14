@@ -56,6 +56,7 @@ export default function Game() {
   const rollDice = useMutation(api.gameActions.rollDice);
   const updateStats = useMutation(api.gameActions.updatePlayerStats);
   const endTurn = useMutation(api.gameActions.endTurn);
+  const useSkill = useMutation(api.gameActions.useSkill);
 
   // Initialize player ID
   useEffect(() => {
@@ -97,6 +98,22 @@ export default function Game() {
   const isMyTurn = currentTurnPlayer === playerId;
   const canStart = room.status === "waiting" && room.players.length >= 2 && 
     room.players.every(p => p.characterId && p.position);
+
+  // Helper: derive cooldown remaining for a skill
+  const getSkillCooldown = (skillName: string) => {
+    const cooldowns = (currentPlayer as any)?.skillCooldowns as Record<string, number> | undefined;
+    return cooldowns?.[skillName] ?? 0;
+  };
+
+  const canUseSkill = (cost: string) => {
+    const parts = cost.trim().toUpperCase().split(/\s+/);
+    const amount = parseInt(parts[0] ?? "0", 10);
+    const type = parts[1] === "HP" ? "HP" : "SP";
+    if (isNaN(amount) || amount <= 0) return true;
+    if (!currentPlayer) return false;
+    if (type === "SP") return (currentPlayer.currentSP ?? 0) >= amount;
+    return (currentPlayer.currentHP ?? 0) >= amount;
+  };
 
   const handleCharacterSelect = async (characterId: string) => {
     if (!roomId || !playerId) return;
@@ -182,6 +199,16 @@ export default function Game() {
       toast.success("Turn ended!");
     } catch (error) {
       toast.error("Failed to end turn");
+    }
+  };
+
+  const handleUseSkill = async (skillName: string) => {
+    if (!roomId || !playerId) return;
+    try {
+      await useSkill({ roomId, playerId, skillName });
+      toast.success(`${skillName} used!`);
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to use skill");
     }
   };
 
@@ -441,29 +468,38 @@ export default function Game() {
                       
                       {currentPlayer && characters && (
                         <TooltipProvider>
-                          {characters.find(c => c.characterId === currentPlayer.characterId)?.skills.map((skill, index) => (
-                            <Tooltip key={index}>
-                              <TooltipTrigger asChild>
-                                <Button 
-                                  variant="outline" 
-                                  className="w-full border-cyan-400/30 hover:border-cyan-400"
-                                  disabled={!isMyTurn}
-                                >
-                                  {skill.name}
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent className="bg-black border-cyan-400/30 text-cyan-400">
-                                <div className="space-y-1">
-                                  <div className="font-bold">{skill.name}</div>
-                                  <div>Cost: {skill.cost}</div>
-                                  <div>Cooldown: {skill.cooldown} turns</div>
-                                  <div>Range: {skill.range}</div>
-                                  <div>Damage: {skill.damage}</div>
-                                  <div className="text-xs">{skill.description}</div>
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          ))}
+                          {characters.find(c => c.characterId === currentPlayer.characterId)?.skills.map((skill, index) => {
+                            const cd = getSkillCooldown(skill.name);
+                            const enoughResource = canUseSkill(skill.cost);
+                            const disabled = !isMyTurn || cd > 0 || !enoughResource;
+                            return (
+                              <Tooltip key={index}>
+                                <TooltipTrigger asChild>
+                                  <Button 
+                                    variant="outline" 
+                                    className="w-full border-cyan-400/30 hover:border-cyan-400 flex justify-between"
+                                    disabled={disabled}
+                                    onClick={() => handleUseSkill(skill.name)}
+                                  >
+                                    <span>{skill.name}</span>
+                                    <span className="text-xs text-cyan-400/70">
+                                      {cd > 0 ? `CD: ${cd}` : `Cost: ${skill.cost}`}
+                                    </span>
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="bg-black border-cyan-400/30 text-cyan-400">
+                                  <div className="space-y-1">
+                                    <div className="font-bold">{skill.name}</div>
+                                    <div>Cost: {skill.cost}</div>
+                                    <div>Cooldown: {skill.cooldown} turns</div>
+                                    <div>Range: {skill.range}</div>
+                                    <div>Damage: {skill.damage}</div>
+                                    <div className="text-xs">{skill.description}</div>
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            );
+                          })}
                         </TooltipProvider>
                       )}
                     </CardContent>
@@ -539,7 +575,7 @@ export default function Game() {
                           {(() => {
                             const character = characters.find(c => c.characterId === currentPlayer.characterId);
                             return character ? (
-                              <div className="space-y-2">
+                              <div className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4 text-sm">
                                   <div>
                                     <div className="text-cyan-400/70">HP</div>
@@ -597,6 +633,25 @@ export default function Game() {
                                   >
                                     Update Stats
                                   </Button>
+                                </div>
+
+                                {/* Skills & Cooldowns */}
+                                <Separator className="bg-cyan-400/30" />
+                                <div className="space-y-2">
+                                  <div className="text-sm text-cyan-400/70">Skills & Cooldowns</div>
+                                  <div className="space-y-1">
+                                    {character.skills.map((skill) => {
+                                      const cd = getSkillCooldown(skill.name);
+                                      return (
+                                        <div key={skill.name} className="flex items-center justify-between text-sm">
+                                          <span>{skill.name}</span>
+                                          <span className={`${cd > 0 ? "text-yellow-400" : "text-green-400"}`}>
+                                            {cd > 0 ? `CD: ${cd}` : "Ready"}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
                               </div>
                             ) : null;

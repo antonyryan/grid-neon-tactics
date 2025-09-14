@@ -1,6 +1,17 @@
 import { v } from "convex/values";
 import { mutation } from "./_generated/server";
 
+function parseCost(cost: string): { amount: number; type: "SP" | "HP" } {
+  const trimmed = cost.trim().toUpperCase();
+  if (trimmed === "0" || trimmed === "0 SP" || trimmed === "0 HP") {
+    return { amount: 0, type: "SP" };
+  }
+  const parts = trimmed.split(/\s+/);
+  const amount = parseInt(parts[0] ?? "0", 10);
+  const type = (parts[1] === "HP" ? "HP" : "SP") as "SP" | "HP";
+  return { amount: isNaN(amount) ? 0 : amount, type };
+}
+
 export const movePlayer = mutation({
   args: {
     roomId: v.string(),
@@ -274,6 +285,103 @@ export const updatePlayerStats = mutation({
   },
 });
 
+export const useSkill = mutation({
+  args: {
+    roomId: v.string(),
+    playerId: v.string(),
+    skillName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const room = await ctx.db
+      .query("rooms")
+      .withIndex("by_room_id", (q) => q.eq("roomId", args.roomId))
+      .first();
+
+    if (!room) throw new Error("Room not found");
+    if (room.status !== "playing") throw new Error("Game not in progress");
+
+    const currentPlayerId = room.turnOrder[room.currentTurnIndex];
+    if (currentPlayerId !== args.playerId) throw new Error("Not your turn");
+
+    const player = room.players.find((p) => p.playerId === args.playerId);
+    if (!player || !player.characterId) throw new Error("Player or character not found");
+    if (!player.isAlive) throw new Error("Player is dead");
+
+    const character = await ctx.db
+      .query("characters")
+      .withIndex("by_character_id", (q) => q.eq("characterId", player.characterId!))
+      .first();
+    if (!character) throw new Error("Character data not found");
+
+    const skill = character.skills.find((s) => s.name === args.skillName);
+    if (!skill) throw new Error("Skill not found");
+
+    const cooldowns = { ...(player.skillCooldowns ?? {}) };
+    const remaining = cooldowns[skill.name] ?? 0;
+    if (remaining > 0) throw new Error(`Skill on cooldown (${remaining} turn${remaining > 1 ? "s" : ""} left)`);
+
+    const { amount, type } = parseCost(skill.cost);
+    let updatedHP = player.currentHP ?? 0;
+    let updatedSP = player.currentSP ?? 0;
+
+    if (type === "SP") {
+      if ((player.currentSP ?? 0) < amount) throw new Error("Not enough SP");
+      updatedSP = (player.currentSP ?? 0) - amount;
+    } else {
+      if ((player.currentHP ?? 0) < amount) throw new Error("Not enough HP");
+      updatedHP = (player.currentHP ?? 0) - amount;
+    }
+
+    // Apply cooldown
+    if (skill.cooldown > 0) {
+      cooldowns[skill.name] = skill.cooldown;
+    }
+
+    // Handle death and turn order if HP <= 0
+    let playerDied = false;
+    let updatedPlayers = room.players.map((p) =>
+      p.playerId === args.playerId
+        ? {
+            ...p,
+            currentHP: updatedHP,
+            currentSP: updatedSP,
+            isAlive: updatedHP > 0,
+            skillCooldowns: cooldowns,
+          }
+        : p
+    );
+
+    let updatedTurnOrder = room.turnOrder.slice();
+    let updatedCurrentTurnIndex = room.currentTurnIndex;
+
+    if (updatedHP <= 0) {
+      playerDied = true;
+      updatedTurnOrder = updatedTurnOrder.filter((id) => id !== args.playerId);
+      const removedIndex = room.turnOrder.indexOf(args.playerId);
+      if (removedIndex <= room.currentTurnIndex && updatedTurnOrder.length > 0) {
+        updatedCurrentTurnIndex = Math.max(0, room.currentTurnIndex - 1);
+        if (updatedCurrentTurnIndex >= updatedTurnOrder.length) {
+          updatedCurrentTurnIndex = 0;
+        }
+      }
+    }
+
+    const updatedLog = [...room.gameLog, {
+      timestamp: new Date().toISOString(),
+      text: `Turno ${room.globalTurnCounter}, ${player.name}: Usou ${skill.name} (Custo: ${skill.cost}${playerDied ? " — morreu" : ""})`,
+    }];
+
+    await ctx.db.patch(room._id, {
+      players: updatedPlayers,
+      turnOrder: updatedTurnOrder,
+      currentTurnIndex: updatedCurrentTurnIndex,
+      gameLog: updatedLog,
+    });
+
+    return { success: true, playerDied };
+  },
+});
+
 export const endTurn = mutation({
   args: {
     roomId: v.string(),
@@ -285,36 +393,25 @@ export const endTurn = mutation({
       .withIndex("by_room_id", (q) => q.eq("roomId", args.roomId))
       .first();
 
-    if (!room) {
-      throw new Error("Room not found");
-    }
+    if (!room) throw new Error("Room not found");
 
-    // Check if it's player's turn
     const currentPlayerId = room.turnOrder[room.currentTurnIndex];
-    if (currentPlayerId !== args.playerId) {
-      throw new Error("Not your turn");
-    }
+    if (currentPlayerId !== args.playerId) throw new Error("Not your turn");
 
     const player = room.players.find(p => p.playerId === args.playerId);
-    if (!player) {
-      throw new Error("Player not found");
-    }
+    if (!player) throw new Error("Player not found");
 
-    // Advance to next turn
+    // Advance turn counters
     let nextTurnIndex = (room.currentTurnIndex + 1) % room.turnOrder.length;
     let newRoundNumber = room.roundNumber;
     let newGlobalTurnCounter = room.globalTurnCounter + 1;
+    if (nextTurnIndex === 0) newRoundNumber++;
 
-    // Check if we completed a round
-    if (nextTurnIndex === 0) {
-      newRoundNumber++;
-    }
-
-    // Regenerate SP for next player
     const nextPlayerId = room.turnOrder[nextTurnIndex];
     const nextPlayer = room.players.find(p => p.playerId === nextPlayerId);
-    
+
     let updatedPlayers = room.players;
+
     if (nextPlayer && nextPlayer.characterId) {
       const character = await ctx.db
         .query("characters")
@@ -322,14 +419,20 @@ export const endTurn = mutation({
         .first();
 
       if (character) {
-        updatedPlayers = room.players.map(p => 
-          p.playerId === nextPlayerId 
-            ? { 
-                ...p, 
-                currentSP: Math.min((p.currentSP || 0) + 1, character.maxSP)
-              }
-            : p
-        );
+        updatedPlayers = room.players.map(p => {
+          if (p.playerId !== nextPlayerId) return p;
+          // Regenerate 1 SP (already present) and decrement cooldowns for the player starting their turn
+          const nextCooldowns = { ...(p.skillCooldowns ?? {}) };
+          for (const key of Object.keys(nextCooldowns)) {
+            const v = nextCooldowns[key] ?? 0;
+            nextCooldowns[key] = Math.max(0, v - 1);
+          }
+          return {
+            ...p,
+            currentSP: Math.min((p.currentSP ?? 0) + 1, character.maxSP),
+            skillCooldowns: nextCooldowns,
+          };
+        });
       }
     }
 
