@@ -25,6 +25,7 @@ export default function Lobby() {
   const seedCharacters = useMutation(api.characters.seedCharacters);
   const characters = useQuery(api.characters.getAllCharacters);
   const updateCharacter = useMutation(api.characters.updateCharacter);
+  const createCharacter = useMutation(api.characters.createCharacter);
 
   const [manageOpen, setManageOpen] = useState(false);
   const [edits, setEdits] = useState<Record<string, {
@@ -36,10 +37,66 @@ export default function Lobby() {
     esquiva?: string;
     alcance?: string;
     placeholderImageURL?: string;
+    skills?: Array<{
+      name: string;
+      cost: string;
+      cooldown: string | number;
+      range: string | number;
+      damage: string;
+      description: string;
+    }>;
   }>>({});
+
+  const [newChar, setNewChar] = useState<{
+    characterId: string;
+    name: string;
+    maxHP: string;
+    maxSP: string;
+    movement: string;
+    attack: string;
+    esquiva: string;
+    alcance: string;
+    placeholderImageURL: string;
+  }>({
+    characterId: "",
+    name: "",
+    maxHP: "100",
+    maxSP: "20",
+    movement: "3",
+    attack: "20",
+    esquiva: "10",
+    alcance: "1",
+    placeholderImageURL: "",
+  });
 
   const setField = (id: string, field: string, value: string) => {
     setEdits(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [field]: value } }));
+  };
+
+  const setSkillField = (id: string, baseSkills: any[], index: number, field: string, value: string) => {
+    setEdits(prev => {
+      const current = prev[id]?.skills ?? baseSkills;
+      const updated = current.map((s, i) => i === index ? { ...s, [field]: value } : s);
+      return { ...prev, [id]: { ...(prev[id] || {}), skills: updated } };
+    });
+  };
+
+  const addSkill = (id: string, baseSkills: any[]) => {
+    setEdits(prev => {
+      const current = prev[id]?.skills ?? baseSkills;
+      const updated = [
+        ...current,
+        { name: "Nova Skill", cost: "0 SP", cooldown: 0, range: 0, damage: "0", description: "" },
+      ];
+      return { ...prev, [id]: { ...(prev[id] || {}), skills: updated } };
+    });
+  };
+  const removeSkill = (id: string, baseSkills: any[], index: number) => {
+    setEdits(prev => {
+      const current = prev[id]?.skills ?? baseSkills;
+      const updated = current.filter((_, i) => i !== index);
+      return { ...prev, [id]: { ...(prev[id] || {}), skills: updated } };
+    });
   };
 
   const saveCharacter = async (id: string) => {
@@ -54,6 +111,16 @@ export default function Lobby() {
       if (e.attack !== undefined && e.attack !== "") payload.attack = parseInt(e.attack);
       if (e.esquiva !== undefined && e.esquiva !== "") payload.esquiva = parseInt(e.esquiva);
       if (e.alcance !== undefined && e.alcance !== "") payload.alcance = parseInt(e.alcance);
+      if (e.skills !== undefined) {
+        payload.skills = e.skills.map((s) => ({
+          name: s.name ?? "",
+          cost: s.cost ?? "0 SP",
+          cooldown: typeof s.cooldown === "string" ? parseInt(s.cooldown || "0") : (s.cooldown ?? 0),
+          range: typeof s.range === "string" ? parseInt(s.range || "0") : (s.range ?? 0),
+          damage: s.damage ?? "0",
+          description: s.description ?? "",
+        }));
+      }
 
       await updateCharacter(payload);
       toast.success("Character updated");
@@ -63,6 +130,40 @@ export default function Lobby() {
       });
     } catch (err: any) {
       toast.error(err?.message || "Failed to update character");
+    }
+  };
+
+  const handleCreateCharacter = async () => {
+    try {
+      if (!newChar.characterId.trim() || !newChar.name.trim()) {
+        toast.error("Defina characterId e nome");
+        return;
+      }
+      await createCharacter({
+        characterId: newChar.characterId.trim(),
+        name: newChar.name.trim(),
+        maxHP: parseInt(newChar.maxHP || "0"),
+        maxSP: parseInt(newChar.maxSP || "0"),
+        movement: parseInt(newChar.movement || "0"),
+        attack: parseInt(newChar.attack || "0"),
+        esquiva: parseInt(newChar.esquiva || "0"),
+        alcance: parseInt(newChar.alcance || "0"),
+        placeholderImageURL: newChar.placeholderImageURL.trim() || undefined,
+      } as any);
+      toast.success("Personagem criado");
+      setNewChar({
+        characterId: "",
+        name: "",
+        maxHP: "100",
+        maxSP: "20",
+        movement: "3",
+        attack: "20",
+        esquiva: "10",
+        alcance: "1",
+        placeholderImageURL: "",
+      });
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao criar personagem");
     }
   };
 
@@ -276,10 +377,57 @@ export default function Lobby() {
               <DialogHeader>
                 <DialogTitle className="text-cyan-400">Gerenciar Personagens</DialogTitle>
               </DialogHeader>
+
+              <div className="space-y-3 p-3 mb-4 rounded border border-cyan-400/20 bg-cyan-400/5">
+                <div className="text-sm text-cyan-300 font-semibold">Adicionar Novo Personagem</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs text-cyan-400/70">characterId</Label>
+                    <Input className="bg-black/30 border-cyan-400/30" value={newChar.characterId} onChange={(e)=>setNewChar({...newChar, characterId: e.target.value})} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-cyan-400/70">Nome</Label>
+                    <Input className="bg-black/30 border-cyan-400/30" value={newChar.name} onChange={(e)=>setNewChar({...newChar, name: e.target.value})} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-cyan-400/70">Imagem (URL)</Label>
+                    <Input className="bg-black/30 border-cyan-400/30" value={newChar.placeholderImageURL} onChange={(e)=>setNewChar({...newChar, placeholderImageURL: e.target.value})} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-cyan-400/70">Max HP</Label>
+                    <Input type="number" className="bg-black/30 border-cyan-400/30" value={newChar.maxHP} onChange={(e)=>setNewChar({...newChar, maxHP: e.target.value})} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-cyan-400/70">Max SP</Label>
+                    <Input type="number" className="bg-black/30 border-cyan-400/30" value={newChar.maxSP} onChange={(e)=>setNewChar({...newChar, maxSP: e.target.value})} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-cyan-400/70">Movimento</Label>
+                    <Input type="number" className="bg-black/30 border-cyan-400/30" value={newChar.movement} onChange={(e)=>setNewChar({...newChar, movement: e.target.value})} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-cyan-400/70">Ataque</Label>
+                    <Input type="number" className="bg-black/30 border-cyan-400/30" value={newChar.attack} onChange={(e)=>setNewChar({...newChar, attack: e.target.value})} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-cyan-400/70">Esquiva</Label>
+                    <Input type="number" className="bg-black/30 border-cyan-400/30" value={newChar.esquiva} onChange={(e)=>setNewChar({...newChar, esquiva: e.target.value})} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-cyan-400/70">Alcance</Label>
+                    <Input type="number" className="bg-black/30 border-cyan-400/30" value={newChar.alcance} onChange={(e)=>setNewChar({...newChar, alcance: e.target.value})} />
+                  </div>
+                </div>
+                <Button onClick={handleCreateCharacter} className="w-full bg-gradient-to-r from-cyan-600 to-pink-600 hover:from-cyan-700 hover:to-pink-700 text-black font-bold">
+                  Criar Personagem
+                </Button>
+              </div>
+
               <ScrollArea className="h-[60vh] pr-2">
                 <div className="space-y-4">
                   {characters?.map((c) => {
                     const e = edits[c.characterId] || {};
+                    const currSkills = e.skills ?? c.skills;
                     return (
                       <Card key={c.characterId} className="bg-black/40 border-cyan-400/20">
                         <CardHeader>
@@ -307,65 +455,112 @@ export default function Lobby() {
 
                           <div>
                             <Label className="text-xs text-cyan-400/70">Max HP</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              className="bg-black/30 border-cyan-400/30"
-                              defaultValue={c.maxHP}
-                              onChange={(ev) => setField(c.characterId, "maxHP", ev.target.value)}
-                            />
+                            <Input type="number" min={0} className="bg-black/30 border-cyan-400/30" defaultValue={c.maxHP}
+                              onChange={(ev) => setField(c.characterId, "maxHP", ev.target.value)} />
                           </div>
                           <div>
                             <Label className="text-xs text-cyan-400/70">Max SP</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              className="bg-black/30 border-cyan-400/30"
-                              defaultValue={c.maxSP}
-                              onChange={(ev) => setField(c.characterId, "maxSP", ev.target.value)}
-                            />
+                            <Input type="number" min={0} className="bg-black/30 border-cyan-400/30" defaultValue={c.maxSP}
+                              onChange={(ev) => setField(c.characterId, "maxSP", ev.target.value)} />
                           </div>
 
                           <div>
                             <Label className="text-xs text-cyan-400/70">Movimento</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              className="bg-black/30 border-cyan-400/30"
-                              defaultValue={c.movement}
-                              onChange={(ev) => setField(c.characterId, "movement", ev.target.value)}
-                            />
+                            <Input type="number" min={0} className="bg-black/30 border-cyan-400/30" defaultValue={c.movement}
+                              onChange={(ev) => setField(c.characterId, "movement", ev.target.value)} />
                           </div>
                           <div>
                             <Label className="text-xs text-cyan-400/70">Ataque</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              className="bg-black/30 border-cyan-400/30"
-                              defaultValue={c.attack}
-                              onChange={(ev) => setField(c.characterId, "attack", ev.target.value)}
-                            />
+                            <Input type="number" min={0} className="bg-black/30 border-cyan-400/30" defaultValue={c.attack}
+                              onChange={(ev) => setField(c.characterId, "attack", ev.target.value)} />
                           </div>
 
                           <div>
                             <Label className="text-xs text-cyan-400/70">Esquiva</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              className="bg-black/30 border-cyan-400/30"
-                              defaultValue={c.esquiva}
-                              onChange={(ev) => setField(c.characterId, "esquiva", ev.target.value)}
-                            />
+                            <Input type="number" min={0} className="bg-black/30 border-cyan-400/30" defaultValue={c.esquiva}
+                              onChange={(ev) => setField(c.characterId, "esquiva", ev.target.value)} />
                           </div>
                           <div>
                             <Label className="text-xs text-cyan-400/70">Alcance</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              className="bg-black/30 border-cyan-400/30"
-                              defaultValue={c.alcance}
-                              onChange={(ev) => setField(c.characterId, "alcance", ev.target.value)}
-                            />
+                            <Input type="number" min={0} className="bg-black/30 border-cyan-400/30" defaultValue={c.alcance}
+                              onChange={(ev) => setField(c.characterId, "alcance", ev.target.value)} />
+                          </div>
+
+                          <div className="md:col-span-2 space-y-3 mt-2">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-xs text-cyan-400/70">Skills</Label>
+                              <Button variant="outline" className="border-cyan-400/30 hover:border-cyan-400"
+                                onClick={() => addSkill(c.characterId, c.skills)}>
+                                Adicionar Skill
+                              </Button>
+                            </div>
+
+                            <div className="space-y-3">
+                              {currSkills.map((s, idx) => (
+                                <div key={idx} className="p-3 rounded border border-cyan-400/20 bg-black/30">
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                    <div>
+                                      <Label className="text-xs text-cyan-400/70">Nome</Label>
+                                      <Input
+                                        className="bg-black/30 border-cyan-400/30"
+                                        defaultValue={s.name}
+                                        onChange={(e)=>setSkillField(c.characterId, c.skills, idx, "name", e.target.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs text-cyan-400/70">Custo (ex: 3 SP ou 2 HP)</Label>
+                                      <Input
+                                        className="bg-black/30 border-cyan-400/30"
+                                        defaultValue={s.cost}
+                                        onChange={(e)=>setSkillField(c.characterId, c.skills, idx, "cost", e.target.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs text-cyan-400/70">Cooldown (turnos)</Label>
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        className="bg-black/30 border-cyan-400/30"
+                                        defaultValue={s.cooldown}
+                                        onChange={(e)=>setSkillField(c.characterId, c.skills, idx, "cooldown", e.target.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs text-cyan-400/70">Alcance (range)</Label>
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        className="bg-black/30 border-cyan-400/30"
+                                        defaultValue={s.range}
+                                        onChange={(e)=>setSkillField(c.characterId, c.skills, idx, "range", e.target.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs text-cyan-400/70">Dano</Label>
+                                      <Input
+                                        className="bg-black/30 border-cyan-400/30"
+                                        defaultValue={s.damage}
+                                        onChange={(e)=>setSkillField(c.characterId, c.skills, idx, "damage", e.target.value)}
+                                      />
+                                    </div>
+                                    <div className="md:col-span-2">
+                                      <Label className="text-xs text-cyan-400/70">Descrição</Label>
+                                      <Input
+                                        className="bg-black/30 border-cyan-400/30"
+                                        defaultValue={s.description}
+                                        onChange={(e)=>setSkillField(c.characterId, c.skills, idx, "description", e.target.value)}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 flex justify-end">
+                                    <Button variant="outline" className="border-red-400/30 hover:border-red-400"
+                                      onClick={() => removeSkill(c.characterId, c.skills, idx)}>
+                                      Remover
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
 
                           <div className="md:col-span-2">

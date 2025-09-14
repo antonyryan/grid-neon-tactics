@@ -309,13 +309,27 @@ export default function Game() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="absolute inset-2 flex items-center justify-center">
-                    <div className={`
-                      w-8 h-8 rounded-full border-2 flex items-center justify-center
-                      ${isCurrentPlayer ? "border-cyan-400 bg-cyan-400/20" : "border-pink-400 bg-pink-400/20"}
-                      font-mono text-xs font-bold
-                    `}>
-                      {player.name.substring(0, 2).toUpperCase()}
-                    </div>
+                    {(() => {
+                      const character = characters?.find(c => c.characterId === player.characterId);
+                      const img = character?.placeholderImageURL;
+                      return img ? (
+                        <img
+                          src={img}
+                          alt={character?.name || "char"}
+                          className={`w-8 h-8 rounded-full object-cover border-2 ${isCurrentPlayer ? "border-cyan-400" : "border-pink-400"}`}
+                        />
+                      ) : (
+                        <div
+                          className={`
+                          w-8 h-8 rounded-full border-2 flex items-center justify-center
+                          ${isCurrentPlayer ? "border-cyan-400 bg-cyan-400/20" : "border-pink-400 bg-pink-400/20"}
+                          font-mono text-xs font-bold
+                        `}
+                        >
+                          {player.name.substring(0, 2).toUpperCase()}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </TooltipTrigger>
                 <TooltipContent className="bg-black border-cyan-400/30 text-cyan-400 max-w-xs">

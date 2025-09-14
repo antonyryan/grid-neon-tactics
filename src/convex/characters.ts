@@ -261,6 +261,18 @@ export const updateCharacter = mutation({
     esquiva: v.optional(v.number()),
     alcance: v.optional(v.number()),
     placeholderImageURL: v.optional(v.string()),
+    skills: v.optional(
+      v.array(
+        v.object({
+          name: v.string(),
+          cost: v.string(),
+          cooldown: v.number(),
+          range: v.number(),
+          damage: v.string(),
+          description: v.string(),
+        })
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const character = await ctx.db
@@ -276,6 +288,7 @@ export const updateCharacter = mutation({
     const toPatch: Record<string, unknown> = {};
     if (args.name !== undefined) toPatch.name = args.name;
     if (args.placeholderImageURL !== undefined) toPatch.placeholderImageURL = args.placeholderImageURL;
+    if (args.skills !== undefined) toPatch.skills = args.skills;
 
     const numericFields = [
       ["maxHP", args.maxHP],
@@ -296,6 +309,67 @@ export const updateCharacter = mutation({
     }
 
     await ctx.db.patch(character._id, toPatch);
+    return { success: true };
+  },
+});
+
+export const createCharacter = mutation({
+  args: {
+    characterId: v.string(),
+    name: v.string(),
+    maxHP: v.number(),
+    maxSP: v.number(),
+    movement: v.number(),
+    attack: v.number(),
+    esquiva: v.number(),
+    alcance: v.number(),
+    placeholderImageURL: v.optional(v.string()),
+    skills: v.optional(
+      v.array(
+        v.object({
+          name: v.string(),
+          cost: v.string(),
+          cooldown: v.number(),
+          range: v.number(),
+          damage: v.string(),
+          description: v.string(),
+        })
+      )
+    ),
+  },
+  handler: async (ctx, args) => {
+    const exists = await ctx.db
+      .query("characters")
+      .withIndex("by_character_id", (q) => q.eq("characterId", args.characterId))
+      .first();
+    if (exists) {
+      throw new Error("CharacterId already exists");
+    }
+
+    await ctx.db.insert("characters", {
+      characterId: args.characterId,
+      name: args.name,
+      maxHP: args.maxHP,
+      maxSP: args.maxSP,
+      movement: args.movement,
+      attack: args.attack,
+      esquiva: args.esquiva,
+      alcance: args.alcance,
+      placeholderImageURL: args.placeholderImageURL ?? "",
+      skills:
+        args.skills ??
+        [
+          {
+            name: "New Skill",
+            cost: "0 SP",
+            cooldown: 0,
+            range: 0,
+            damage: "0",
+            description: "",
+          },
+        ],
+    });
+
     return { success: true };
   },
 });
