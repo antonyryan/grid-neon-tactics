@@ -230,13 +230,22 @@ export default function Game() {
   };
 
   const renderGrid = () => {
+    const myCharacter = characters?.find(c => c.characterId === currentPlayer?.characterId);
+    const myMovement = myCharacter?.movement ?? 0;
     const grid = [];
     for (let y = 0; y < room.gridSize; y++) {
       for (let x = 0; x < room.gridSize; x++) {
         const player = room.players.find(p => p.position?.x === x && p.position?.y === y && p.isAlive);
         const isSelected = selectedTile?.x === x && selectedTile?.y === y;
         const isCurrentPlayer = player?.playerId === playerId;
-        const canMoveHere = room.status === "playing" && isMyTurn && !player && selectedTile;
+
+        const isPlayingMyTurn = room.status === "playing" && isMyTurn && !!currentPlayer?.position;
+        const isEmpty = !player;
+        const distFromMe = isPlayingMyTurn
+          ? Math.abs(x - (currentPlayer!.position!.x)) + Math.abs(y - (currentPlayer!.position!.y))
+          : Infinity;
+        const inMoveRange = isPlayingMyTurn && isEmpty && distFromMe > 0 && distFromMe <= myMovement;
+
         const canSelectPosition = room.status === "waiting" && currentPlayer && !player;
 
         grid.push(
@@ -248,7 +257,7 @@ export default function Game() {
               ${isSelected ? "border-cyan-400 bg-cyan-400/20" : ""}
               ${player ? "bg-gradient-to-br from-pink-500/20 to-purple-500/20" : ""}
               ${isCurrentPlayer ? "ring-2 ring-cyan-400" : ""}
-              ${canMoveHere ? "bg-green-400/20 hover:bg-green-400/30" : ""}
+              ${inMoveRange ? "bg-green-400/20 hover:bg-green-400/30" : ""}
               ${canSelectPosition ? "hover:bg-cyan-400/10" : ""}
             `}
             whileHover={{ scale: 1.05 }}
@@ -259,7 +268,7 @@ export default function Game() {
               } else if (room.status === "playing") {
                 if (isMyTurn && player?.playerId === playerId) {
                   setSelectedTile({ x, y });
-                } else if (isMyTurn && selectedTile && !player) {
+                } else if (isMyTurn && inMoveRange) {
                   handleMove(x, y);
                 }
               }
